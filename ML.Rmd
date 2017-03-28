@@ -1,0 +1,291 @@
+---
+title: "Bike Sharing Rentals Modelling"
+output: html_document
+---
+Data Source: https://archive.ics.uci.edu/ml/datasets/Bike+Sharing+Dataset
+
+* Loading required libraries
+```{r message=FALSE}
+library(dplyr)
+library(ggplot2)
+library(reshape2)
+library(base)
+library(h2o)
+```
+* Preparing a class that identifies the way that date is used in the dataset
+```{r}
+setClass('myDate')
+setAs('character', 'myDate', function(from) as.Date(from, format = '%Y-%m-%d'))
+```
+* Three dataframes can be generated based on casual, registered, and total number of rentees
+    * I dropped 'id' because R generates its own id system for the observations
+    * I also dropped 'temperature_50' because it is an unneeded duplicate for 'temperature_41'
+```{r}
+casual <- read.csv('D:\\hour.csv', colClasses = c('date' = 'myDate'),
+                   col.names = c('id', 'date', 'season', 'yr_2012', 'month', 'hour',
+                                 'holiday', 'day_week', 'workday', 'weather',
+                                 'temperature_41', 'temperature_50', 'humidity_100', 'windspeed_67',
+                                 'nr_casual', 'nr_registered', 'nr_total'))[,c(2:11,13:15)]
+registered <- read.csv('D:\\hour.csv', colClasses = c('date' = 'myDate'),
+                       col.names = c('id', 'date', 'season', 'yr_2012', 'month', 'hour',
+                                     'holiday', 'day_week', 'workday', 'weather',
+                                     'temperature_41', 'temperature_50', 'humidity_100', 'windspeed_67',
+                                     'nr_casual', 'nr_registered', 'nr_total'))[,c(2:11,13,14,16)]
+total <- read.csv('D:\\hour.csv', colClasses = c('date' = 'myDate'),
+                  col.names = c('id', 'date', 'season', 'yr_2012', 'month', 'hour',
+                                'holiday', 'day_week', 'workday', 'weather',
+                                'temperature_41', 'temperature_50', 'humidity_100', 'windspeed_67',
+                                'nr_casual', 'nr_registered', 'nr_total'))[,c(2:11,13,14,17)]
+```
+* Renaming the dependent variable in the datasets
+```{r}
+colnames(casual)[colnames(casual)=='nr_casual'] <- 'nr'
+colnames(registered)[colnames(registered)=='nr_registered'] <- 'nr'
+colnames(total)[colnames(total)=='nr_total'] <- 'nr'
+```
+* Using str() to list dataframes' columns' names with their properties
+```{r}
+str(casual)
+str(registered)
+str(total)
+```
+* Plotting different variables to identify unnecessary variables' ranges
+    * 'date', 'yr_2012', 'month', and 'hour' variables were not plotted because no changes shall be applied upon them anyways
+    * 'nr' were not plotted because it is the dependent variable and no changes shall be applied upon it also
+```{r}
+plot(total$season)
+plot(total$holiday)
+plot(total$day_week)
+plot(total$workday)
+plot(total$weather)
+plot(total$temperature_41)
+plot(total$humidity_100)
+plot(total$windspeed_67)
+```
+
+* After plotting, the following was decided:
+    * weather = 4 is not needed because observations are too low
+    * temperature_41 < 0.2 and temperature_41 > 0.8 observations can be discarded
+    * humidity_100 < 0.3 and humidity_100 > 0.9 observations can also be discarded
+    * windspeed_67 > 0.4 observations can also be discarded
+    * 'holiday' variable is not needed at all because majority of values are 0's
+```{r}
+train <- total
+train <- subset(train, weather < 4)
+train <- subset(train, temperature_41 > 0.2 & temperature_41 < 0.8)
+train <- subset(train, humidity_100 > 0.3 & humidity_100 < 0.9)
+train <- subset(train, windspeed_67 > 0.0 & windspeed_67 < 0.4)
+train$holiday <- NULL
+casual$holiday <- NULL
+registered$holiday <- NULL
+total$holiday <- NULL
+```
+* Using str() again to list dataframes' columns' names with their properties
+```{r}
+str(casual)
+str(registered)
+str(total)
+str(train)
+```
+* Printing a summary of basic characteristics of 'train' dataframe
+* Checking if there is any NA or less-than-a-zero value
+```{r}
+summary(train)
+sapply(train, function(x) sum(is.na(x)))
+sapply(train, function(x) sum(x<0, na.rm=TRUE))
+```
+* Plotting all variables based on 'yr_2012' to identify observations that happened in 2011 and those that happened in 2012
+    * If I want to use a logarithmic scale I would need to deal with 0's
+```{r warning=FALSE}
+train %>% melt(id.vars = "yr_2012") %>% tbl_df %>%
+  ggplot() + geom_histogram(aes(x = value+0.000, fill = as.factor(yr_2012))) +
+  facet_wrap(~ variable, scales = "free") #+ scale_x_log10()
+```
+
+* Plotting count of 'nr' across 'nr' based on:
+    * 'season' variable
+    * 'yr_2012' variable
+    * 'month' variable
+    * 'hour' variable
+    * 'day_week' variable
+    * 'work_day' variable
+    * 'weather' variable
+* If I want to use a logarithmic scale I would need to deal with 0's
+```{r warning=FALSE}
+ggplot(train) + geom_histogram(aes(x = nr+0.000)) +
+  facet_grid(season~., scales = "free") #+ scale_x_log10()
+
+ggplot(train) + geom_histogram(aes(x = nr+0.000)) +
+  facet_grid(yr_2012~., scales = "free") #+ scale_x_log10()
+
+ggplot(train) + geom_histogram(aes(x = nr+0.000)) +
+  facet_grid(month~., scales = "free") #+ scale_x_log10()
+
+ggplot(train) + geom_histogram(aes(x = nr+0.000)) +
+  facet_grid(hour~., scales = "free") #+ scale_x_log10()
+
+ggplot(train) + geom_histogram(aes(x = nr+0.000)) +
+  facet_grid(day_week~., scales = "free") #+ scale_x_log10()
+
+ggplot(train) + geom_histogram(aes(x = nr+0.000)) +
+  facet_grid(workday~., scales = "free") #+ scale_x_log10()
+
+ggplot(train) + geom_histogram(aes(x = nr+0.000)) +
+  facet_grid(weather~., scales = "free") #+ scale_x_log10()
+```
+
+* Displaying lists of the following properties:
+    1. Number and percentage of observations for each available value of 'day_week' and 'workday'
+    2. Number and percentage of observations for each available value of 'month' and 'hour' when 'nr' was greater than 250
+    3. Number and percentage of observations for each available value of 'workday' when 'nr' was greater than 400
+    4. Maximum number of rentals in each available value of 'season'
+    5. each 'month' and 'nr' value when 'windspeed_67' was greater than 0.3 and 'humidity_100' was smaller than 0.5
+```{r}
+train %>% group_by(day_week, workday) %>% summarize(n = n()) %>%
+  mutate(pc = n/sum(n)*100)
+
+train %>% filter(nr>250) %>%
+  group_by(month, hour) %>% summarize(n = n()) %>%
+  mutate(pc = n/sum(n)*100) %>% as.data.frame()
+
+train %>% filter(nr>400) %>%
+  group_by(workday) %>% summarize(n = n()) %>%
+  mutate(pc = n/sum(n)*100)
+
+train %>% group_by(season) %>% 
+  summarize(max = max(nr))
+
+train %>% filter(windspeed_67>0.3 & humidity_100<0.5) %>%
+  select(month, nr)
+```
+* I wanted to use the following code to divide the training set randomly into 5 datasets to ensure cross-validation but an easier way to do it in H2O Package made me comment the following lines
+```{r}
+#idx_1 <- sample(1:nrow(train), nrow(train)*0.2)
+#idx_2 <- sample(setdiff(1:nrow(train), idx_1), nrow(train)*0.2)
+#idx_3 <- sample(setdiff(1:nrow(train), c(idx_1,idx_2)), nrow(train)*0.2)
+#idx_4 <- sample(setdiff(1:nrow(train), c(idx_1,idx_2,idx_3)), nrow(train)*0.2)
+#idx_5 <- sample(setdiff(1:nrow(train), c(idx_1,idx_2,idx_3,idx_4)), nrow(train)*0.2)
+
+#t1 <- train[idx_1,]
+#t2 <- train[idx_2,]
+#t3 <- train[idx_3,]
+#t4 <- train[idx_4,]
+#t5 <- train[idx_5,]
+#rm(idx_1,idx_2,idx_3,idx_4,idx_5)
+```
+* The first line disables the progress bar of H2O functions
+* The second line initializes a connction between the H2O online app and R with 8 GB of memory and freedom of using any available CPU
+```{r}
+h2o.no_progress()
+h2o.init(max_mem_size = '8g', nthreads = -1)
+```
+* The following line results in a random split of the training set into two sets of 60% and 40% of the original set
+```{r message=FALSE}
+splits <- h2o.splitFrame(as.h2o(train), ratios = 0.6)
+```
+* The following grid search evaluates a random forest algorithm over many options
+```{r message=FALSE}
+rf_g <- h2o.grid('randomForest', x = 1:11, y = 12, nfolds = 3, 
+                 training_frame = splits[[1]], validation_frame = splits[[2]], 
+                 hyper_params = list(ntrees = c(10, 50, 100), 
+                                     max_depth = c(10, 20, 50), 
+                                     nbins = c(10, 20, 50)))
+```
+* The following grid search evaluates a generalized boosted model algorithm over many options
+```{r message=FALSE}
+gbm_g <- h2o.grid('gbm', x = 1:11, y = 12, nfolds = 3, 
+                  training_frame = splits[[1]], validation_frame = splits[[2]], 
+                  hyper_params = list(ntrees = c(10, 50, 100), 
+                                      max_depth = c(10, 20, 50), 
+                                      nbins = c(10, 20, 50), 
+                                      learn_rate = c(0.02, 0.2)))
+```
+* The following grid search evaluates a deep learning algorithm over many options
+```{r message=FALSE}
+dl_g <- h2o.grid('deeplearning', x = 1:11, y = 12, nfolds = 3, 
+                 training_frame = splits[[1]], validation_frame = splits[[2]], 
+                 hyper_params = list(activation = c('Tanh', 
+                                                    'TanhWithDropout', 
+                                                    'Rectifier', 
+                                                    'RectifierWithDropout', 
+                                                    'Maxout', 
+                                                    'MaxoutWithDropout')))
+```
+* The following grid search evaluates a generalized linear model algorithm over many options
+* I had to process additional 4 separate GLM algorithms because 'family' option in the GLM algorithm is not gridable
+```{r message=FALSE}
+glm_g <- h2o.grid('glm', x = 1:11, y = 12, nfolds = 3, 
+                  training_frame = splits[[1]], validation_frame = splits[[2]], 
+                  hyper_params = list(alpha = c(0.1, 0.5, 1)))
+glm_1 <- h2o.glm(x = 1:11, y = 12, nfolds = 3, 
+                 training_frame = splits[[1]], 
+                 validation_frame = splits[[2]])
+glm_2 <- h2o.glm(x = 1:11, y = 12, nfolds = 3, 
+                 training_frame = splits[[1]], 
+                 validation_frame = splits[[2]], 
+                 family = 'poisson')
+glm_3 <- h2o.glm(x = 1:11, y = 12, nfolds = 3, 
+                 training_frame = splits[[1]], 
+                 validation_frame = splits[[2]], 
+                 family = 'gamma')
+glm_4 <- h2o.glm(x = 1:11, y = 12, nfolds = 3, 
+                 training_frame = splits[[1]], 
+                 validation_frame = splits[[2]], 
+                 family = 'tweedie')
+```
+* The first four lines return the least residual deviance in each grid search
+* The second four lines return the residual deviance in each manually-created GLM
+```{r}
+rf_g@summary_table$residual_deviance[1]
+gbm_g@summary_table$residual_deviance[1]
+dl_g@summary_table$residual_deviance[1]
+glm_g@summary_table$residual_deviance[1]
+h2o.performance(glm_1,splits[[2]])@metrics$residual_deviance
+h2o.performance(glm_2,splits[[2]])@metrics$residual_deviance
+h2o.performance(glm_3,splits[[2]])@metrics$residual_deviance
+h2o.performance(glm_4,splits[[2]])@metrics$residual_deviance
+```
+* The following lines return the mean squared error of validating the original 'total' dataframe
+```{r}
+h2o.performance(h2o.getModel(rf_g@model_ids[[1]]), as.h2o(total))@metrics$MSE
+h2o.performance(h2o.getModel(gbm_g@model_ids[[1]]), as.h2o(total))@metrics$MSE
+h2o.performance(h2o.getModel(dl_g@model_ids[[1]]), as.h2o(total))@metrics$MSE
+h2o.performance(h2o.getModel(glm_g@model_ids[[1]]), as.h2o(total))@metrics$MSE
+h2o.performance(glm_1, as.h2o(total))@metrics$MSE
+h2o.performance(glm_2, as.h2o(total))@metrics$MSE
+h2o.performance(glm_3, as.h2o(total))@metrics$MSE
+h2o.performance(glm_4, as.h2o(total))@metrics$MSE
+```
+* The following lines return the mean squared error of validating the original 'casual' dataframe
+```{r}
+h2o.performance(h2o.getModel(rf_g@model_ids[[1]]), as.h2o(casual))@metrics$MSE
+h2o.performance(h2o.getModel(gbm_g@model_ids[[1]]), as.h2o(casual))@metrics$MSE
+h2o.performance(h2o.getModel(dl_g@model_ids[[1]]), as.h2o(casual))@metrics$MSE
+h2o.performance(h2o.getModel(glm_g@model_ids[[1]]), as.h2o(casual))@metrics$MSE
+h2o.performance(glm_1, as.h2o(casual))@metrics$MSE
+h2o.performance(glm_2, as.h2o(casual))@metrics$MSE
+h2o.performance(glm_3, as.h2o(casual))@metrics$MSE
+h2o.performance(glm_4, as.h2o(casual))@metrics$MSE
+```
+* The following lines return the mean squared error of validating the original 'registered' dataframe
+```{r}
+h2o.performance(h2o.getModel(rf_g@model_ids[[1]]), as.h2o(registered))@metrics$MSE
+h2o.performance(h2o.getModel(gbm_g@model_ids[[1]]), as.h2o(registered))@metrics$MSE
+h2o.performance(h2o.getModel(dl_g@model_ids[[1]]), as.h2o(registered))@metrics$MSE
+h2o.performance(h2o.getModel(glm_g@model_ids[[1]]), as.h2o(registered))@metrics$MSE
+h2o.performance(glm_1, as.h2o(registered))@metrics$MSE
+h2o.performance(glm_2, as.h2o(registered))@metrics$MSE
+h2o.performance(glm_3, as.h2o(registered))@metrics$MSE
+h2o.performance(glm_4, as.h2o(registered))@metrics$MSE
+```
+* This line finishes the established connection between H2O online app and R
+```{r}
+h2o.shutdown(prompt = FALSE)
+```
+### Conclusions
+* Based on the above results we can conclude the following:
+    * Generalized Boosted Model (GBM) was the most successful model for this dataset
+    * GBM could model 'train', 'total', and 'registered' dataframes successfully
+    * Any of the used models could not model 'casual' dataframe
+    * Generalized Linear Model (GLM) with Gamma distribution was the most unsuccessful model to be used
+    * GLM in general was not a successful model to be used with this dataset compared to RF, GBM, and DL
